@@ -1,0 +1,115 @@
+---
+title: "Doing Analysis with Health Data"
+output: 
+  html_notebook
+---
+
+
+# We ask so many questions!
+
+One of my (many) questions is in regards to drug overdoses: 
+<center> <h1> <strong> Has the rate of drug overdose deaths changed over time? </strong> </h1> </center>
+
+- Why might this be an important question?
+- Why is it an economics question?
+- How does it pertain to health economics, as we have studies so far?
+
+## A big question requires big data
+
+The CDC has a neat portal to access health data. While not the most detailed, it can give us a start!
+
+Let's visit it! 
+
+[CDC Wonder](https//wonder.cdc.gov ) 
+
+
+## Finding the data that is right for the job
+What we need is **mortality** data. 
+
+- Drug related deaths
+- Recent time period (until most recent available)
+- Preferably aggregated to the county or state level (maybe even national)
+
+[Link to Data](https://wonder.cdc.gov/ucd-icd10.html)
+
+[The Underlying Cause of Death Datafile Description](https://wonder.cdc.gov/wonder/help/ucd.html#)
+
+> The Underlying Cause of Death data available on WONDER are county-level national mortality and population data spanning the years 1999-2017. Data are based on death certificates for U.S. residents. Each death certificate identifies a single underlying cause of death and demographic data. The number of deaths, crude death rates or age-adjusted death rates, and 95% confidence intervals and standard errors for death rates can be obtained by place of residence (total U.S., region, state and county), age group (single-year-of age, 5-year age groups, 10-year age groups and infant age groups), race, Hispanic ethnicity, gender, year, cause-of-death (4-digit ICD-10 code or group of codes), injury intent and injury mechanism, drug/alcohol induced causes and urbanization categories. Data are also available for place of death, month and week day of death, and whether an autopsy was performed.
+
+> The population estimates are U.S. Census Bureau estimates of U.S. national, state, and county resident populations. The year 1999 population estimates are bridged-race intercensal estimates of the July 1 resident population, based on the year 1990 and the year 2000 census counts. The year 2000 and year 2010 population estimates are April 1 modified census counts, with bridged-race categories. The 2001 - 2009 population estimates are bridged-race revised intercensal estimates of the July 1 resident population, based on the year 2000 and the year 2010 census counts (released by NCHS on 10/26/2012).	The 2001 - 2009 archive population estimates are bridged-race postcensal estimates of the July 1 resident population. The 2011 - 2017 population estimates are bridged-race postcensal estimates of the July 1 resident population. For more information, see Population Data Sources.
+
+
+## Let's download this data, grouping by state, year, and drug/alcohol induced cause 
+
+#### Importing it into our spreadsheet (here using R): 
+
+```{r}
+deaths <- read.delim(file="C:/Users/rselby/OneDrive - emporia.edu/GitHub/Health-Econ/data/ucod97.txt", header = TRUE, sep = "\t", dec = ".")
+
+head(deaths)
+```
+
+#### And giving it a quick one-over on the important variables
+
+```{r}
+library(plyr)
+count(deaths, vars="State")
+count(deaths, 'Year')
+count(deaths, 'Drug.Alcohol.Induced.Cause')
+```
+
+#### Let's see what happend with "Unintentional" drug poisonings over time
+We need to create an "aggregate" national variable
+
+```{r}
+totaldeaths<-aggregate(Deaths ~ Year+Drug.Alcohol.Induced.Cause, data=deaths, FUN=sum)
+totalpop<- aggregate(Population ~ Year+Drug.Alcohol.Induced.Cause, data=deaths, FUN=sum)
+aggregate<-merge(totaldeaths,totalpop,by=c("Year","Drug.Alcohol.Induced.Cause"))
+aggregate$rate<-100000*aggregate$Deaths/aggregate$Population
+head(aggregate)
+```
+```{r}
+levels(aggregate$Drug.Alcohol.Induced.Cause)
+totaldeathssub <- subset(aggregate,Drug.Alcohol.Induced.Cause=="Drug poisonings (overdose) Unintentional (X40-X44)")
+
+plot(Deaths~Year, data=totaldeathssub, main="Accidental Overdose Deaths 1999-2017")
+
+plot(rate~Year, data=totaldeathssub, main="Accidental Overdose Death Rate 1999-2017", ylab = "Deaths per 100,000 Population")
+
+```
+
+
+## Regression Analysis
+
+```{r,results='asis'}
+library(stargazer)
+reg <- lm(rate~Year,totaldeathssub)
+stargazer(totaldeathssub)
+
+stargazer(reg, title="Regression Results", align=TRUE, type = 'html')
+
+```
+
+## Adding in Controls 
+
+```{r, results='asis'}
+library(readstata13)
+deathssub <- subset(deaths,Drug.Alcohol.Induced.Cause=="Drug poisonings (overdose) Unintentional (X40-X44)")
+
+urate <- read.dta13(file="state_urate.dta")
+deathsurate<-merge(deathssub,urate,by.x=c("Year","State.Code"), by.y=c("year","FIPS_ST"))
+head(deathsurate)
+
+deathsurate$rate<-100000*deathsurate$Deaths/deathsurate$Population
+
+deathsurate$year.f<-factor(deathsurate$Year)
+reg2<- lm(rate~Year,deathsurate)
+reg3<- lm(rate~Year+urate,deathsurate)
+reg4<- lm(rate~urate+year.f,deathsurate)
+reg5<- lm(rate~urate+year.f+State,deathsurate)
+
+stargazer(reg2,reg3,reg4,reg5, title="Regression Results", align=TRUE, type = 'html')
+
+```
+
+
